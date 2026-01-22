@@ -26,8 +26,13 @@ export function serveStatic(app: Express) {
   console.log(`Serving static files from: ${distPath}`);
   app.use(express.static(distPath));
 
-  // Fix for Express 5 wildcard routes
-  app.get("/(.*)", (_req, res) => {
+  // Express 5 wildcard fix: Using a catch-all that doesn't trigger path-to-regexp errors
+  app.get("*", (req, res, next) => {
+    // Skip if it's an API route
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+    
     const indexPath = path.resolve(distPath, "index.html");
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
