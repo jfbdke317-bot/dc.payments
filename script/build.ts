@@ -65,7 +65,10 @@ async function buildAll() {
       "vite",
       "esbuild",
       "fsevents",
-      "pg-native"
+      "pg-native",
+      "canvas",
+      "bufferutil",
+      "utf-8-validate"
     ],
     logLevel: "info",
   });
