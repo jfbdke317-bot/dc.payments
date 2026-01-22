@@ -59,7 +59,24 @@ async function buildAll() {
       "process.env.NODE_ENV": '"production"',
     },
     minify: true,
-    external: [...externals, "lightningcss", "vite"],
+    external: [
+      ...externals,
+      "lightningcss",
+      "vite",
+      "esbuild",
+      "node:path",
+      "node:url",
+      "node:fs/promises",
+      "node:http",
+      "node:https",
+      "node:zlib",
+      "node:stream",
+      "node:buffer",
+      "node:util",
+      "node:net",
+      "node:crypto",
+      "fsevents"
+    ],
     logLevel: "info",
   });
 }
