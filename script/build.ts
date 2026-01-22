@@ -64,18 +64,8 @@ async function buildAll() {
       "lightningcss",
       "vite",
       "esbuild",
-      "node:path",
-      "node:url",
-      "node:fs/promises",
-      "node:http",
-      "node:https",
-      "node:zlib",
-      "node:stream",
-      "node:buffer",
-      "node:util",
-      "node:net",
-      "node:crypto",
-      "fsevents"
+      "fsevents",
+      "pg-native"
     ],
     logLevel: "info",
   });
