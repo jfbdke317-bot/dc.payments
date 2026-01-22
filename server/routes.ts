@@ -1,0 +1,135 @@
+import type { Express } from "express";
+import { type Server } from "http";
+import { storage } from "./storage";
+import { setupDiscordBot, handlePaymentConfirmed } from "./discord";
+import { api } from "@shared/routes";
+import { z } from "zod";
+import crypto from "crypto";
+import axios from "axios";
+
+export async function registerRoutes(
+  httpServer: Server,
+  app: Express
+): Promise<Server> {
+  // Initialize Discord Bot
+  setupDiscordBot();
+
+  // Webhook for Moneymotion
+  app.post("/moneymotion-webhook", async (req, res) => {
+    const { order_id, status } = req.body;
+    const sig = req.headers["x-moneymotion-sig"];
+    
+    console.log(`Moneymotion webhook received: ${order_id} - ${status}`);
+
+    if (process.env.MONEYMOTION_WEBHOOK_SECRET && sig) {
+      const hmac = crypto.createHmac("sha256", process.env.MONEYMOTION_WEBHOOK_SECRET);
+      hmac.update(JSON.stringify(req.body));
+      const expectedSignature = hmac.digest("hex");
+      
+      if (sig !== expectedSignature) {
+        console.warn("Invalid signature from Moneymotion");
+        // Optional: return res.status(401).send("Invalid signature");
+      }
+    }
+
+    if (status === "paid" || status === "completed") {
+      await storage.updateInvoiceStatus(order_id, "confirmed");
+      await handlePaymentConfirmed(order_id);
+    } else {
+      await storage.updateInvoiceStatus(order_id, status);
+      // Also notify for other status changes (like refunded)
+      await handlePaymentConfirmed(order_id);
+    }
+
+    res.sendStatus(200);
+  });
+
+  // Webhook for NOWPayments
+  app.post("/nowpayments", async (req, res) => {
+    const sig = req.headers["x-nowpayments-sig"];
+    const body = JSON.stringify(req.body, Object.keys(req.body).sort());
+    
+    if (!process.env.NOWPAYMENTS_IPN_SECRET) {
+      console.error("IPN Secret missing");
+      return res.sendStatus(500);
+    }
+
+    const hmac = crypto.createHmac("sha512", process.env.NOWPAYMENTS_IPN_SECRET);
+    hmac.update(body);
+    const signature = hmac.digest("hex");
+
+    if (signature !== sig) {
+      console.warn("Invalid signature from NOWPayments");
+    }
+
+    const { payment_status, payment_id } = req.body;
+
+    if (payment_status === "confirmed" || payment_status === "finished") {
+      await storage.updateInvoiceStatus(payment_id, payment_status);
+      await handlePaymentConfirmed(payment_id);
+    } else {
+      if (payment_id) {
+         await storage.updateInvoiceStatus(payment_id, payment_status);
+      }
+    }
+
+    res.sendStatus(200);
+  });
+
+  app.get("/api/health", (req, res) => {
+    res.send("✅ Webhook server is running!");
+  });
+
+  // API Routes
+  app.get(api.invoices.list.path, async (req, res) => {
+    const invoices = await storage.getAllInvoices();
+    res.json(invoices);
+  });
+
+  app.post(api.invoices.create.path, async (req, res) => {
+    try {
+      const input = api.invoices.create.input.parse(req.body);
+      const invoice = await storage.createInvoice(input);
+      
+      // If payment method is moneymotion, create the order via API
+      if (req.body.paymentMethod === "moneymotion") {
+        if (!process.env.MONEYMOTION_API_KEY) {
+          return res.status(500).json({ message: "Moneymotion API key not configured" });
+        }
+
+        try {
+          const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+          const response = await axios.post("https://api.moneymotion.io/v1/orders", {
+            amount: input.payAmount,
+            currency: input.payCurrency || "USD",
+            order_id: invoice.paymentId,
+            description: input.orderDescription,
+            callback_url: `${baseUrl}/moneymotion-webhook`
+          }, {
+            headers: {
+              "Authorization": `Bearer ${process.env.MONEYMOTION_API_KEY}`,
+              "Content-Type": "application/json"
+            }
+          });
+
+          // Update invoice with Moneymotion ID and URL
+          await storage.updateInvoiceStatus(invoice.paymentId, "pending");
+          return res.status(201).json({ ...invoice, payment_url: response.data.payment_url });
+        } catch (apiErr: any) {
+          console.error("Moneymotion API Error:", apiErr.response?.data || apiErr.message);
+          return res.status(500).json({ message: "Failed to create Moneymotion order" });
+        }
+      }
+
+      res.status(201).json(invoice);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json(err);
+      } else {
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    }
+  });
+
+  return httpServer;
+}

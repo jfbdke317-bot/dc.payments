@@ -1,0 +1,416 @@
+import { Client, GatewayIntentBits, Partials, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, InteractionType, ButtonBuilder, ButtonStyle } from "discord.js";
+import axios from "axios";
+import { storage } from "./storage";
+import "dotenv/config";
+
+const MINIMUM_AMOUNTS: Record<string, number> = {
+  "fivem_ready": 3,
+  "discord_ready_fa": 4,
+  "discord_token_ready": 5,
+  "steam_ready": 4,
+  "vpn_3m": 1,
+  "vpn_6m": 1,
+  "vpn_1y": 1
+};
+
+const PRODUCT_PRICES: Record<string, number> = {
+  "fivem_ready": 0.25,
+  "discord_ready_fa": 0.20,
+  "discord_token_ready": 0.05,
+  "steam_ready": 0.20,
+  "vpn_3m": 5,
+  "vpn_6m": 10,
+  "vpn_1y": 20
+};
+
+const LOCALES: Record<string, any> = {
+  en: {
+    welcome: "Welcome to your ticket! Please select your language:",
+    select_product: "Select a product",
+    please_select: "Please select a product:",
+    enter_quantity: "Enter Quantity",
+    select_payment: "Select Payment Method",
+    please_select_payment: "Please select how you want to pay:",
+    crypto: "Crypto (NOWPayments)",
+    credit_card: "Credit Card (Moneymotion)",
+    quantity_label: (min: number) => `Quantity (Min: ${min})`,
+    invalid_quantity: (min: number) => `Invalid quantity! The minimum is ${min}.`,
+    invoice_created: (url: string) => `Invoice created! Please pay here: ${url}`,
+    error_invoice: "Error creating invoice. Please try again later.",
+    payment_confirmed: (user: string, desc: string) => `Payment confirmed! User <@${user}> paid for ${desc}.`,
+    products: [
+      { label: "FiveM Ready ($0.25, min 3)", value: "fivem_ready", description: "FiveM accounts" },
+      { label: "Discord Ready (FA) ($0.20, min 4)", value: "discord_ready_fa", description: "Full Access Discord accounts" },
+      { label: "Discord Token Ready ($0.05, min 5)", value: "discord_token_ready", description: "Token ready accounts" },
+      { label: "Steam Ready ($0.20, min 4)", value: "steam_ready", description: "Steam accounts" },
+      { label: "VPN Cyberghost 3 Months ($5)", value: "vpn_3m", description: "3 Months VPN" },
+      { label: "VPN Cyberghost 6 Months ($10)", value: "vpn_6m", description: "6 Months VPN" },
+      { label: "VPN Cyberghost 1 Year ($20)", value: "vpn_1y", description: "1 Year VPN" },
+    ]
+  },
+  de: {
+    welcome: "Willkommen in deinem Ticket! Bitte wähle deine Sprache:",
+    select_product: "Produkt auswählen",
+    please_select: "Bitte wähle ein Produkt aus:",
+    enter_quantity: "Menge eingeben",
+    select_payment: "Zahlungsmethode auswählen",
+    please_select_payment: "Bitte wähle aus, wie du bezahlen möchtest:",
+    crypto: "Kryptowährung (NOWPayments)",
+    credit_card: "Kreditkarte (Moneymotion)",
+    quantity_label: (min: number) => `Menge (Min: ${min})`,
+    invalid_quantity: (min: number) => `Ungültige Menge! Das Minimum ist ${min}.`,
+    invoice_created: (url: string) => `Rechnung erstellt! Bitte hier bezahlen: ${url}`,
+    error_invoice: "Fehler beim Erstellen der Rechnung. Bitte versuche es später erneut.",
+    payment_confirmed: (user: string, desc: string) => `Zahlung bestätigt! Nutzer <@${user}> hat für ${desc} bezahlt.`,
+    products: [
+      { label: "FiveM Ready (€0.25, min 3)", value: "fivem_ready", description: "FiveM Accounts" },
+      { label: "Discord Ready (FA) (€0.20, min 4)", value: "discord_ready_fa", description: "Full Access Discord Accounts" },
+      { label: "Discord Token Ready (€0.05, min 5)", value: "discord_token_ready", description: "Token Ready Accounts" },
+      { label: "Steam Ready (€0.20, min 4)", value: "steam_ready", description: "Steam Accounts" },
+      { label: "VPN Cyberghost 3 Monate (€5)", value: "vpn_3m", description: "3 Monate VPN" },
+      { label: "VPN Cyberghost 6 Monate (€10)", value: "vpn_6m", description: "6 Monate VPN" },
+      { label: "VPN Cyberghost 1 Jahr (€20)", value: "vpn_1y", description: "1 Jahr VPN" },
+    ]
+  },
+  fr: {
+    welcome: "Bienvenue dans votre ticket ! Veuillez choisir votre langue :",
+    select_product: "Sélectionner un produit",
+    please_select: "Veuillez sélectionner un produit :",
+    enter_quantity: "Entrez la quantité",
+    select_payment: "Sélectionner le mode de paiement",
+    please_select_payment: "Veuillez sélectionner comment vous souhaitez payer :",
+    crypto: "Crypto (NOWPayments)",
+    credit_card: "Carte de crédit (Moneymotion)",
+    quantity_label: (min: number) => `Quantité (Min: ${min})`,
+    invalid_quantity: (min: number) => `Quantité invalide ! Le minimum est ${min}.`,
+    invoice_created: (url: string) => `Facture créée ! Veuillez payer ici : ${url}`,
+    error_invoice: "Erreur lors de la création de la facture. Veuillez réessayer plus tard.",
+    payment_confirmed: (user: string, desc: string) => `Paiement confirmé ! L'utilisateur <@${user}> a payé pour ${desc}.`,
+    products: [
+      { label: "FiveM Ready (0.25€, min 3)", value: "fivem_ready", description: "Comptes FiveM" },
+      { label: "Discord Ready (FA) (0.20€, min 4)", value: "discord_ready_fa", description: "Comptes Discord Accès Total" },
+      { label: "Discord Token Ready (0.05€, min 5)", value: "discord_token_ready", description: "Comptes Token Ready" },
+      { label: "Steam Ready (0.20€, min 4)", value: "steam_ready", description: "Comptes Steam" },
+      { label: "VPN Cyberghost 3 Mois (5€)", value: "vpn_3m", description: "3 Mois de VPN" },
+      { label: "VPN Cyberghost 6 Mois (10€)", value: "vpn_6m", description: "6 Mois de VPN" },
+      { label: "VPN Cyberghost 1 An (20€)", value: "vpn_1y", description: "1 An de VPN" },
+    ]
+  }
+};
+
+let client: Client;
+
+export function setupDiscordBot() {
+  const token = process.env.DISCORD_TOKEN;
+  if (!token) {
+    console.warn("DISCORD_TOKEN not set, skipping bot setup");
+    return;
+  }
+
+  console.log("Initializing Discord Bot...");
+  client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+    partials: [Partials.Channel],
+  });
+
+  client.once("ready", () => {
+    console.log(`LOGGED_IN_SUCCESSFULLY: ${client.user?.tag}`);
+    console.log("GUILD_LIST:", client.guilds.cache.map(g => `${g.name} (${g.id})`).join(", "));
+    console.log("BOT_PRESENCE_CHECK: The bot is officially online and listening.");
+    registerCommands().catch(err => console.error("Error registering commands:", err));
+  });
+
+  client.on("error", (error) => {
+    console.error("CRITICAL_DISCORD_ERROR:", error);
+  });
+
+  client.on("debug", (info) => {
+    if (info.includes("heartbeat") || info.includes("latency")) return;
+    console.log("DISCORD_DEBUG_VERBOSE:", info);
+  });
+
+  // Automatically post language selection in ticket channels
+  client.on("channelCreate", async (channel) => {
+    // If channel has a specific name
+    const channelName = channel.name.toLowerCase();
+    if (channel.isTextBased() && channelName.includes("buy-product")) {
+      setTimeout(async () => {
+        try {
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId("lang_en").setLabel("🇺🇸").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId("lang_de").setLabel("🇩🇪").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId("lang_fr").setLabel("🇫🇷").setStyle(ButtonStyle.Primary)
+          );
+
+          await channel.send({
+            content: "Welcome! Please select your language / Willkommen! Bitte wähle deine Sprache / Bienvenue ! Veuillez choisir votre langue :",
+            components: [row]
+          });
+        } catch (error) {
+          console.error("Error sending language selection to ticket channel:", error);
+        }
+      }, 2000);
+    }
+  });
+
+  client.on("interactionCreate", async (interaction) => {
+    try {
+      if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === "order") {
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId("lang_en").setLabel("🇺🇸").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId("lang_de").setLabel("🇩🇪").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId("lang_fr").setLabel("🇫🇷").setStyle(ButtonStyle.Primary)
+          );
+
+          await interaction.reply({
+            content: "Please select your language / Bitte wähle deine Sprache / Veuillez choisir votre langue :",
+            components: [row],
+            ephemeral: true
+          });
+        }
+      } else if (interaction.isButton()) {
+        if (interaction.customId.startsWith("lang_")) {
+          const lang = interaction.customId.replace("lang_", "");
+          if (LOCALES[lang]) {
+            const locale = LOCALES[lang];
+            const select = new StringSelectMenuBuilder()
+              .setCustomId(`select_product_${lang}`)
+              .setPlaceholder(locale.select_product)
+              .addOptions(
+                locale.products.map((p: any) =>
+                  new StringSelectMenuOptionBuilder()
+                    .setLabel(p.label)
+                    .setValue(p.value)
+                    .setDescription(p.description)
+                )
+              );
+
+            const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+
+            await interaction.update({
+              content: locale.please_select,
+              components: [row]
+            });
+          }
+        } else if (interaction.customId.startsWith("pay_")) {
+          const parts = interaction.customId.split("_");
+          const type = parts[1]; // crypto or card
+          const lang = parts[parts.length - 1];
+          const quantity = parseInt(parts[parts.length - 2]);
+          const product = parts.slice(2, parts.length - 2).join("_");
+          const locale = LOCALES[lang] || LOCALES.en;
+
+          await interaction.deferReply({ ephemeral: true });
+
+          try {
+            console.log(`Creating ${type} invoice for ${product}, quantity: ${quantity}`);
+            let pricePerUnit = PRODUCT_PRICES[product] || 10;
+            const currency = lang === "en" ? "USD" : "EUR";
+
+            if (currency === "USD") {
+              pricePerUnit = pricePerUnit * 1.09;
+            }
+
+            const amount = quantity * pricePerUnit;
+            let invoiceUrl = "";
+            let paymentId = "";
+
+            if (type === "crypto") {
+              const invoice = await createNOWPaymentsInvoice(amount, currency, product, interaction.user.id);
+              paymentId = (invoice.payment_id || invoice.id).toString();
+              invoiceUrl = invoice.invoice_url;
+
+              await storage.createInvoice({
+                paymentId,
+                paymentStatus: invoice.payment_status || "waiting",
+                payAddress: invoice.pay_address || null,
+                payAmount: invoice.pay_amount ? invoice.pay_amount.toString() : amount.toFixed(2),
+                payCurrency: invoice.pay_currency || "BTC",
+                orderDescription: `Order: ${product} x${quantity}`,
+                userId: interaction.user.id,
+                productId: product,
+                paymentMethod: "crypto"
+              });
+            } else {
+              if (!process.env.MONEYMOTION_API_KEY) throw new Error("Moneymotion API Key missing");
+
+            paymentId = `MM-${Date.now()}-${interaction.user.id}`;
+            const baseUrl = process.env.APP_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+            const response = await axios.post("https://api.moneymotion.io/v1/orders", {
+              amount: amount.toFixed(2),
+              currency: currency,
+              order_id: paymentId,
+              description: `Order: ${product} x${quantity}`,
+              callback_url: `${baseUrl}/moneymotion-webhook`
+            }, {
+              headers: {
+                "Authorization": `Bearer ${process.env.MONEYMOTION_API_KEY}`,
+                "Content-Type": "application/json"
+              }
+            });
+
+              invoiceUrl = response.data.payment_url;
+
+              await storage.createInvoice({
+                paymentId,
+                paymentStatus: "pending",
+                payAddress: null,
+                payAmount: amount.toFixed(2),
+                payCurrency: currency,
+                orderDescription: `Order: ${product} x${quantity}`,
+                userId: interaction.user.id,
+                productId: product,
+                paymentMethod: "moneymotion",
+                moneymotionId: response.data.id
+              });
+            }
+
+            await interaction.editReply({
+              content: locale.invoice_created(invoiceUrl || "Link not available")
+            });
+
+          } catch (error: any) {
+            console.error("Error creating invoice:", error.response?.data || error.message);
+            await interaction.editReply({
+              content: locale.error_invoice
+            });
+          }
+        }
+      } else if (interaction.isStringSelectMenu()) {
+        if (interaction.customId.startsWith("select_product_")) {
+          const lang = interaction.customId.replace("select_product_", "");
+          const locale = LOCALES[lang] || LOCALES.en;
+          const selected = interaction.values[0];
+
+          const modal = new ModalBuilder()
+            .setCustomId(`modal_quantity_${selected}_${lang}`)
+            .setTitle(locale.enter_quantity);
+
+          const quantityInput = new TextInputBuilder()
+            .setCustomId("quantity")
+            .setLabel(locale.quantity_label(MINIMUM_AMOUNTS[selected]))
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
+
+          const row = new ActionRowBuilder<TextInputBuilder>().addComponents(quantityInput);
+          modal.addComponents(row);
+
+          await interaction.showModal(modal);
+        }
+      } else if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith("modal_quantity_")) {
+          const parts = interaction.customId.split("_");
+          const lang = parts[parts.length - 1];
+          const product = parts.slice(2, parts.length - 1).join("_");
+          const locale = LOCALES[lang] || LOCALES.en;
+
+          const quantityStr = interaction.fields.getTextInputValue("quantity");
+          const quantity = parseInt(quantityStr);
+
+          if (isNaN(quantity) || quantity < MINIMUM_AMOUNTS[product]) {
+            await interaction.reply({
+              content: locale.invalid_quantity(MINIMUM_AMOUNTS[product]),
+              ephemeral: true
+            });
+            return;
+          }
+
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`pay_crypto_${product}_${quantity}_${lang}`)
+              .setLabel(locale.crypto)
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`pay_card_${product}_${quantity}_${lang}`)
+              .setLabel(locale.credit_card)
+              .setStyle(ButtonStyle.Primary)
+          );
+
+          await interaction.reply({
+            content: locale.please_select_payment,
+            components: [row],
+            ephemeral: true
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Interaction Error:", err);
+    }
+  });
+
+  client.login(process.env.DISCORD_TOKEN);
+}
+
+async function registerCommands() {
+  const token = process.env.DISCORD_TOKEN;
+  if (!token) return;
+
+  const commands = [
+    {
+      name: "order",
+      description: "Start a new order",
+    },
+  ];
+  
+  try {
+    const { REST, Routes } = await import("discord.js");
+    const rest = new REST({ version: "10" }).setToken(token);
+    
+    const clientId = client.user?.id;
+    if (clientId) {
+      console.log("Started refreshing application (/) commands.");
+      await rest.put(Routes.applicationCommands(clientId), { body: commands });
+      console.log("Successfully reloaded application (/) commands.");
+    }
+  } catch (error) {
+    console.error("Error registering slash commands:", error);
+  }
+}
+
+async function createNOWPaymentsInvoice(amount: number, currency: string, product: string, userId: string) {
+  if (!process.env.NOWPAYMENTS_API_KEY) throw new Error("API Key missing");
+
+  const response = await axios.post("https://api.nowpayments.io/v1/invoice", {
+    price_amount: amount,
+    price_currency: currency,
+    order_id: `ORDER-${Date.now()}-${userId}`,
+    order_description: product,
+    ipn_callback_url: `${process.env.APP_URL || `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`}/nowpayments`,
+    success_url: "https://discord.com",
+    cancel_url: "https://discord.com"
+  }, {
+    headers: {
+      "x-api-key": process.env.NOWPAYMENTS_API_KEY,
+      "Content-Type": "application/json"
+    }
+  });
+
+  return response.data;
+}
+
+export async function handlePaymentConfirmed(paymentId: string) {
+  if (!client) return;
+
+  const invoice = await storage.getInvoiceByPaymentId(paymentId);
+  if (!invoice) return;
+
+  // Log to admin channel
+  const adminChannelId = process.env.ADMIN_CHANNEL_ID_2 || "1400259496668041296";
+  try {
+    const channel = await client.channels.fetch(adminChannelId);
+    if (channel && "send" in channel) {
+      const statusText = invoice.paymentStatus === "confirmed" || invoice.paymentStatus === "finished" || invoice.paymentStatus === "paid" || invoice.paymentStatus === "completed" 
+        ? "Payment confirmed!" 
+        : `Payment status update: ${invoice.paymentStatus}`;
+      
+      await (channel as any).send(`${statusText} User <@${invoice.userId}> paid for ${invoice.orderDescription}.`);
+    }
+  } catch (error) {
+    console.error("Error logging to admin channel:", error);
+  }
+}
