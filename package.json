@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "vite build && mkdir -p public && cp -r dist/public/* public/ 2>/dev/null || true",
-    "start": "NODE_ENV=production tsx server/index.ts",
-    "postinstall": "npm install @vitejs/plugin-react"
+    "start": "NODE_ENV=production tsx server/index.ts"
   },
   "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
     "tsx": "^4.19.2",
     "vite": "^6.0.7",
     "lightningcss": "^1.29.1",
@@ -93,7 +93,6 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.5.13",
-    "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.31.8",
     "postcss": "^8.4.47",
