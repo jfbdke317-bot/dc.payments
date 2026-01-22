@@ -7,17 +7,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export function serveStatic(app: Express) {
-  // Use the root public directory created by the build script
-  const distPath = path.resolve(__dirname, "../public");
+  // Try multiple possible locations for the public directory
+  const possiblePaths = [
+    path.resolve(__dirname, "../public"),
+    path.resolve(__dirname, "../../public"),
+    path.resolve(process.cwd(), "public"),
+    path.resolve(process.cwd(), "dist/public")
+  ];
 
-  if (!fs.existsSync(distPath)) {
-    console.warn(`Static directory not found at ${distPath}. Dashboard might not load.`);
+  let distPath = possiblePaths[0];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p) && fs.existsSync(path.join(p, "index.html"))) {
+      distPath = p;
+      break;
+    }
   }
 
+  console.log(`Serving static files from: ${distPath}`);
   app.use(express.static(distPath));
 
-  // Express 5 requires specific handling for wildcard routes
-  app.get("*", (_req, res) => {
+  // Fix for Express 5 wildcard routes
+  app.get("/(.*)", (_req, res) => {
     const indexPath = path.resolve(distPath, "index.html");
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
