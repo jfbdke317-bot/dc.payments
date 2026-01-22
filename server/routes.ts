@@ -11,8 +11,14 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  console.log("ROUTES_INIT: Registering routes and starting bot...");
   // Initialize Discord Bot
-  setupDiscordBot();
+  try {
+    setupDiscordBot();
+    console.log("BOT_SETUP_CALLED: Initialized successfully.");
+  } catch (err) {
+    console.error("Error during setupDiscordBot:", err);
+  }
 
   // Webhook for Moneymotion
   app.post("/moneymotion-webhook", async (req, res) => {
@@ -28,7 +34,6 @@ export async function registerRoutes(
       
       if (sig !== expectedSignature) {
         console.warn("Invalid signature from Moneymotion");
-        // Optional: return res.status(401).send("Invalid signature");
       }
     }
 
@@ -37,7 +42,6 @@ export async function registerRoutes(
       await handlePaymentConfirmed(order_id);
     } else {
       await storage.updateInvoiceStatus(order_id, status);
-      // Also notify for other status changes (like refunded)
       await handlePaymentConfirmed(order_id);
     }
 
@@ -67,10 +71,8 @@ export async function registerRoutes(
     if (payment_status === "confirmed" || payment_status === "finished") {
       await storage.updateInvoiceStatus(payment_id, payment_status);
       await handlePaymentConfirmed(payment_id);
-    } else {
-      if (payment_id) {
-         await storage.updateInvoiceStatus(payment_id, payment_status);
-      }
+    } else if (payment_id) {
+      await storage.updateInvoiceStatus(payment_id, payment_status);
     }
 
     res.sendStatus(200);
@@ -91,7 +93,6 @@ export async function registerRoutes(
       const input = api.invoices.create.input.parse(req.body);
       const invoice = await storage.createInvoice(input);
       
-      // If payment method is moneymotion, create the order via API
       if (req.body.paymentMethod === "moneymotion") {
         if (!process.env.MONEYMOTION_API_KEY) {
           return res.status(500).json({ message: "Moneymotion API key not configured" });
@@ -112,7 +113,6 @@ export async function registerRoutes(
             }
           });
 
-          // Update invoice with Moneymotion ID and URL
           await storage.updateInvoiceStatus(invoice.paymentId, "pending");
           return res.status(201).json({ ...invoice, payment_url: response.data.payment_url });
         } catch (apiErr: any) {
