@@ -89,106 +89,149 @@ const LOCALES: Record<string, any> = {
 let client: Client;
 
 export function setupDiscordBot() {
-  const token = process.env.DISCORD_TOKEN;
-  if (!token) return;
+  let token = process.env.DISCORD_TOKEN;
+  if (!token) {
+    console.error("CRITICAL ERROR: DISCORD_TOKEN is missing in environment variables. The bot cannot start without it.");
+    console.error("Please add DISCORD_TOKEN to your .env file or deployment secrets.");
+    return;
+  }
 
-  client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.GuildPresences
-    ],
-    partials: [Partials.Channel, Partials.GuildMember, Partials.User],
-  });
+  // Clean the token (remove whitespace and quotes if present)
+  token = token.trim().replace(/^["']|["']$/g, '');
 
-  client.once("ready", () => {
-    console.log(`LOGGED_IN_SUCCESSFULLY: ${client.user?.tag}`);
-    registerCommands().catch(err => console.error("Error registering commands:", err));
-  });
+  if (token.split('.').length !== 3) {
+    console.error("CRITICAL WARNING: The provided DISCORD_TOKEN does not look like a valid JWT (it should have 3 parts separated by dots). Check for copy-paste errors.");
+    console.log(`Token start: ${token.substring(0, 5)}... Token end: ...${token.substring(token.length - 5)}`);
+  }
 
-  client.on("channelCreate", async (channel) => {
-    const channelName = channel.name.toLowerCase();
-    if (channel.isTextBased() && channelName.includes("buy-product")) {
-      setTimeout(async () => {
-        try {
+  console.log("BOT_INIT: Attempting to create Discord Client...");
+
+  try {
+    client = new Client({
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildPresences
+      ],
+      partials: [Partials.Channel, Partials.GuildMember, Partials.User],
+    });
+
+    // Add Debug Logging
+    client.on("debug", (info) => console.log(`[DISCORD DEBUG] ${info}`));
+    client.on("warn", (info) => console.warn(`[DISCORD WARN] ${info}`));
+    client.on("error", (error) => console.error(`[DISCORD ERROR] ${error.message}`));
+    
+    // Shard/Connection Events
+    client.on("shardError", (error) => console.error(`[DISCORD SHARD ERROR] ${error.message}`));
+    client.on("shardDisconnect", (event) => console.warn(`[DISCORD SHARD DISCONNECT] Code: ${event.code}, Reason: ${event.reason}`));
+    client.on("shardReconnecting", () => console.log(`[DISCORD SHARD RECONNECTING]...`));
+    client.on("shardResume", () => console.log(`[DISCORD SHARD RESUME] Connection recovered.`));
+
+    client.once("ready", () => {
+      console.log(`LOGGED_IN_SUCCESSFULLY: ${client.user?.tag}`);
+      registerCommands().catch(err => console.error("Error registering commands:", err));
+    });
+
+    client.on("channelCreate", async (channel) => {
+      const channelName = channel.name.toLowerCase();
+      if (channel.isTextBased() && channelName.includes("buy-product")) {
+        setTimeout(async () => {
+          try {
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+              new ButtonBuilder().setCustomId("lang_en").setLabel("🇺🇸").setStyle(ButtonStyle.Primary),
+              new ButtonBuilder().setCustomId("lang_de").setLabel("🇩🇪").setStyle(ButtonStyle.Primary),
+              new ButtonBuilder().setCustomId("lang_fr").setLabel("🇫🇷").setStyle(ButtonStyle.Primary)
+            );
+            await channel.send({ content: "Select your language / Wähle deine Sprache / Choisis ta langue:", components: [row] });
+          } catch (error) { console.error(error); }
+        }, 2000);
+      }
+    });
+
+    client.on("interactionCreate", async (interaction) => {
+      try {
+        if (interaction.isChatInputCommand() && interaction.commandName === "order") {
           const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder().setCustomId("lang_en").setLabel("🇺🇸").setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId("lang_de").setLabel("🇩🇪").setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId("lang_fr").setLabel("🇫🇷").setStyle(ButtonStyle.Primary)
           );
-          await channel.send({ content: "Select your language / Wähle deine Sprache / Choisis ta langue:", components: [row] });
-        } catch (error) { console.error(error); }
-      }, 2000);
-    }
-  });
-
-  client.on("interactionCreate", async (interaction) => {
-    try {
-      if (interaction.isChatInputCommand() && interaction.commandName === "order") {
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder().setCustomId("lang_en").setLabel("🇺🇸").setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId("lang_de").setLabel("🇩🇪").setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId("lang_fr").setLabel("🇫🇷").setStyle(ButtonStyle.Primary)
-        );
-        await interaction.reply({ content: "Select language:", components: [row], ephemeral: true });
-      } else if (interaction.isButton()) {
-        if (interaction.customId.startsWith("lang_")) {
-          const lang = interaction.customId.replace("lang_", "");
-          const locale = LOCALES[lang];
-          const select = new StringSelectMenuBuilder()
-            .setCustomId(`select_product_${lang}`)
-            .setPlaceholder(locale.select_product)
-            .addOptions(locale.products.map((p: any) => new StringSelectMenuOptionBuilder().setLabel(p.label).setValue(p.value).setDescription(p.description)));
-          await interaction.update({ content: locale.please_select, components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)] });
-        } else if (interaction.customId.startsWith("pay_")) {
-          const parts = interaction.customId.split("_");
-          const type = parts[1], lang = parts[parts.length - 1], quantity = parseInt(parts[parts.length - 2]), product = parts.slice(2, parts.length - 2).join("_");
-          const locale = LOCALES[lang] || LOCALES.en;
-          await interaction.deferReply({ ephemeral: true });
-          try {
-            let pricePerUnit = PRODUCT_PRICES[product] || 10;
-            const currency = lang === "en" ? "USD" : "EUR";
-            if (currency === "USD") pricePerUnit *= 1.09;
-            const amount = quantity * pricePerUnit;
-            let invoiceUrl = "", paymentId = "";
-
-            if (type === "crypto") {
-              const invoice = await createNOWPaymentsInvoice(amount, currency, product, interaction.user.id);
-              paymentId = (invoice.payment_id || invoice.id).toString();
-              invoiceUrl = invoice.invoice_url;
-              await storage.createInvoice({ paymentId, paymentStatus: invoice.payment_status || "waiting", payAddress: invoice.pay_address || null, payAmount: invoice.pay_amount ? invoice.pay_amount.toString() : amount.toFixed(2), payCurrency: invoice.pay_currency || "BTC", orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "crypto" });
-            } else {
-              paymentId = `MM-${Date.now()}-${interaction.user.id}`;
-              const baseUrl = process.env.APP_URL || `https://dc-payments.onrender.com`;
-              const response = await axios.post("https://api.moneymotion.io/v1/orders", { amount: amount.toFixed(2), currency, order_id: paymentId, description: `Order: ${product} x${quantity}`, callback_url: `${baseUrl}/moneymotion-webhook` }, { headers: { "Authorization": `Bearer ${process.env.MONEYMOTION_API_KEY}`, "Content-Type": "application/json" } });
-              invoiceUrl = response.data.payment_url;
-              await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: response.data.id });
-            }
-            await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
-          } catch (e) { await interaction.editReply({ content: locale.error_invoice }); }
+          await interaction.reply({ content: "Select language:", components: [row], ephemeral: true });
+        } else if (interaction.isButton()) {
+          if (interaction.customId.startsWith("lang_")) {
+            const lang = interaction.customId.replace("lang_", "");
+            const locale = LOCALES[lang];
+            const select = new StringSelectMenuBuilder()
+              .setCustomId(`select_product_${lang}`)
+              .setPlaceholder(locale.select_product)
+              .addOptions(locale.products.map((p: any) => new StringSelectMenuOptionBuilder().setLabel(p.label).setValue(p.value).setDescription(p.description)));
+            await interaction.update({ content: locale.please_select, components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)] });
+          } else if (interaction.customId.startsWith("pay_")) {
+            const parts = interaction.customId.split("_");
+            const type = parts[1], lang = parts[parts.length - 1], quantity = parseInt(parts[parts.length - 2]), product = parts.slice(2, parts.length - 2).join("_");
+            const locale = LOCALES[lang] || LOCALES.en;
+            await interaction.deferReply({ ephemeral: true });
+            try {
+              let pricePerUnit = PRODUCT_PRICES[product] || 10;
+              const currency = lang === "en" ? "USD" : "EUR";
+              if (currency === "USD") pricePerUnit *= 1.09;
+              const amount = quantity * pricePerUnit;
+              let invoiceUrl = "", paymentId = "";
+  
+              if (type === "crypto") {
+                const invoice = await createNOWPaymentsInvoice(amount, currency, product, interaction.user.id);
+                paymentId = (invoice.payment_id || invoice.id).toString();
+                invoiceUrl = invoice.invoice_url;
+                await storage.createInvoice({ paymentId, paymentStatus: invoice.payment_status || "waiting", payAddress: invoice.pay_address || null, payAmount: invoice.pay_amount ? invoice.pay_amount.toString() : amount.toFixed(2), payCurrency: invoice.pay_currency || "BTC", orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "crypto" });
+              } else {
+                paymentId = `MM-${Date.now()}-${interaction.user.id}`;
+                const baseUrl = process.env.APP_URL || `https://dc-payments.onrender.com`;
+                const response = await axios.post("https://api.moneymotion.io/v1/orders", { amount: amount.toFixed(2), currency, order_id: paymentId, description: `Order: ${product} x${quantity}`, callback_url: `${baseUrl}/moneymotion-webhook` }, { headers: { "Authorization": `Bearer ${process.env.MONEYMOTION_API_KEY}`, "Content-Type": "application/json" } });
+                invoiceUrl = response.data.payment_url;
+                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: response.data.id });
+              }
+              await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
+            } catch (e) { await interaction.editReply({ content: locale.error_invoice }); }
+          }
+        } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("select_product_")) {
+          const lang = interaction.customId.replace("select_product_", ""), locale = LOCALES[lang], selected = interaction.values[0];
+          const modal = new ModalBuilder().setCustomId(`modal_quantity_${selected}_${lang}`).setTitle(locale.enter_quantity);
+          const quantityInput = new TextInputBuilder().setCustomId("quantity").setLabel(locale.quantity_label(MINIMUM_AMOUNTS[selected])).setStyle(TextInputStyle.Short).setRequired(true);
+          modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(quantityInput));
+          await interaction.showModal(modal);
+        } else if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_quantity_")) {
+          const parts = interaction.customId.split("_"), lang = parts[parts.length - 1], product = parts.slice(2, parts.length - 1).join("_"), locale = LOCALES[lang];
+          const quantity = parseInt(interaction.fields.getTextInputValue("quantity"));
+          if (isNaN(quantity) || quantity < MINIMUM_AMOUNTS[product]) return await interaction.reply({ content: locale.invalid_quantity(MINIMUM_AMOUNTS[product]), ephemeral: true });
+          const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId(`pay_crypto_${product}_${quantity}_${lang}`).setLabel(locale.crypto).setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`pay_card_${product}_${quantity}_${lang}`).setLabel(locale.credit_card).setStyle(ButtonStyle.Primary)
+          );
+          await interaction.reply({ content: locale.please_select_payment, components: [row], ephemeral: true });
         }
-      } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("select_product_")) {
-        const lang = interaction.customId.replace("select_product_", ""), locale = LOCALES[lang], selected = interaction.values[0];
-        const modal = new ModalBuilder().setCustomId(`modal_quantity_${selected}_${lang}`).setTitle(locale.enter_quantity);
-        const quantityInput = new TextInputBuilder().setCustomId("quantity").setLabel(locale.quantity_label(MINIMUM_AMOUNTS[selected])).setStyle(TextInputStyle.Short).setRequired(true);
-        modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(quantityInput));
-        await interaction.showModal(modal);
-      } else if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_quantity_")) {
-        const parts = interaction.customId.split("_"), lang = parts[parts.length - 1], product = parts.slice(2, parts.length - 1).join("_"), locale = LOCALES[lang];
-        const quantity = parseInt(interaction.fields.getTextInputValue("quantity"));
-        if (isNaN(quantity) || quantity < MINIMUM_AMOUNTS[product]) return await interaction.reply({ content: locale.invalid_quantity(MINIMUM_AMOUNTS[product]), ephemeral: true });
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder().setCustomId(`pay_crypto_${product}_${quantity}_${lang}`).setLabel(locale.crypto).setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`pay_card_${product}_${quantity}_${lang}`).setLabel(locale.credit_card).setStyle(ButtonStyle.Primary)
-        );
-        await interaction.reply({ content: locale.please_select_payment, components: [row], ephemeral: true });
-      }
-    } catch (err) { console.error(err); }
-  });
+      } catch (err) { console.error(err); }
+    });
 
-  client.login(token).catch(err => console.error("LOGIN_FAIL:", err.message));
+    console.log("BOT_INIT: Calling client.login()...");
+    client.login(token)
+      .then(() => console.log("BOT_LOGIN: Login promise resolved."))
+      .catch(err => {
+        console.error("FATAL: Discord Login Failed!");
+        console.error(err);
+        if (err.code === 'TokenInvalid') {
+           console.error("CHECK YOUR TOKEN: The token provided was rejected by Discord.");
+        }
+        if (err.code === 'DisallowedIntents') {
+           console.error("CHECK INTENTS: You must enable 'Privileged Gateway Intents' (Presence, Server Members, Message Content) in the Discord Developer Portal.");
+        }
+      });
+
+  } catch (err) {
+    console.error("FATAL: Error initializing Discord Client constructor");
+    console.error(err);
+  }
 }
 
 async function registerCommands() {
