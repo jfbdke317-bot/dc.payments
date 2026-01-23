@@ -110,10 +110,15 @@ export function setupDiscordBot() {
         GatewayIntentBits.GuildPresences  
       ],
       partials: [Partials.Channel, Partials.GuildMember, Partials.User],
+      // Add failIfNotExists: false to prevent crashing on missing users
       failIfNotExists: false,
-      rest: { timeout: 60000 }
+      // Increase timeout for slow connections
+      rest: {
+        timeout: 60000 // 60 seconds
+      }
     });
 
+    // Debug Logging
     client.on("debug", (info) => console.log(`[DISCORD DEBUG] ${info}`));
     client.on("warn", (info) => console.warn(`[DISCORD WARN] ${info}`));
     client.on("error", (error) => console.error(`[DISCORD ERROR] ${error.message}`));
@@ -176,7 +181,9 @@ export function setupDiscordBot() {
                 await storage.createInvoice({ paymentId, paymentStatus: invoice.payment_status || "waiting", payAddress: invoice.pay_address || null, payAmount: invoice.pay_amount ? invoice.pay_amount.toString() : amount.toFixed(2), payCurrency: invoice.pay_currency || "BTC", orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "crypto" });
               } else {
                 paymentId = `MM-${Date.now()}-${interaction.user.id}`;
-                const baseUrl = process.env.APP_URL || `https://dc-payments.onrender.com`;
+                // --- RAILWAY & CUSTOM DOMAIN SUPPORT ---
+                // Priority: APP_URL (Railway Variable) -> RAILWAY_PUBLIC_DOMAIN -> Fallback
+                const baseUrl = process.env.APP_URL || `https://${process.env.RAILWAY_PUBLIC_DOMAIN || "your-app-name.up.railway.app"}`;
                 
                 // --- FIXED MONEYMOTION IMPLEMENTATION ---
                 console.log(`[MONEYMOTION] Creating Checkout Session at https://api.moneymotion.io/createCheckoutSession`);
@@ -193,20 +200,13 @@ export function setupDiscordBot() {
                     }
                 }, { 
                     headers: { 
-                        "X-API-Key": process.env.MONEYMOTION_API_KEY, // Correct Header
+                        "X-API-Key": process.env.MONEYMOTION_API_KEY, 
                         "Content-Type": "application/json" 
                     } 
                 });
 
-                // Try to find the URL in various common fields since we don't have the response schema
                 invoiceUrl = response.data.url || response.data.checkout_url || response.data.payment_url || response.data.link;
-                
-                if (!invoiceUrl) {
-                    console.error("[MONEYMOTION ERROR] No URL found in response:", response.data);
-                    throw new Error("API responded but no checkout URL found.");
-                }
-
-                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: response.data.id || "unknown" });
+                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: response.data.id });
               }
               await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
             } catch (e: any) { 
@@ -239,6 +239,12 @@ export function setupDiscordBot() {
       .catch(err => {
         console.error("FATAL: Discord Login Failed!");
         console.error(err);
+        if (err.code === 'TokenInvalid') {
+           console.error("CHECK YOUR TOKEN: The token provided was rejected by Discord.");
+        }
+        if (err.code === 'DisallowedIntents') {
+           console.error("CHECK INTENTS: You must enable 'Privileged Gateway Intents' (Presence, Server Members, Message Content) in the Discord Developer Portal.");
+        }
       });
 
   } catch (err) {
@@ -273,12 +279,15 @@ export async function handlePaymentConfirmed(paymentId: string) {
   const invoice = await storage.getInvoiceByPaymentId(paymentId);
   if (!invoice) return;
   
+  // Use the specific Admin Channel ID provided by user
   const adminChannelId = process.env.ADMIN_CHANNEL_ID_2 || "1400259496668041296";
   
   try {
     const channel = await client.channels.fetch(adminChannelId);
     if (channel && "send" in channel) {
       const statusText = ["confirmed", "finished", "paid", "completed"].includes(invoice.paymentStatus) ? "Payment confirmed!" : `Update: ${invoice.paymentStatus}`;
+      
+      // Enhanced Embed for Admin Notification
       const embed = new EmbedBuilder()
         .setTitle(`💰 ${statusText}`)
         .setColor(statusText.includes("confirmed") ? 0x00FF00 : 0xFFA500)
