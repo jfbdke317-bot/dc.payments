@@ -178,12 +178,12 @@ export function setupDiscordBot() {
                 paymentId = `MM-${Date.now()}-${interaction.user.id}`;
                 const baseUrl = process.env.APP_URL || `https://dc-payments.onrender.com`;
                 
-                // --- SWITCHED TO CHECKOUT SESSIONS ENDPOINT ---
-                console.log(`[MONEYMOTION DEBUG] Creating Checkout Session...`);
+                // --- FIXED MONEYMOTION IMPLEMENTATION ---
+                console.log(`[MONEYMOTION] Creating Checkout Session at https://api.moneymotion.io/createCheckoutSession`);
                 
-                const response = await axios.post("https://api.moneymotion.io/checkout-sessions", { 
+                const response = await axios.post("https://api.moneymotion.io/createCheckoutSession", { 
                     product_name: `Order: ${product} x${quantity}`,
-                    amount: Number(amount.toFixed(2)), // Ensure it's a number
+                    amount: Number(amount.toFixed(2)),
                     currency: currency,
                     success_url: `${baseUrl}/success?payment_id=${paymentId}`,
                     cancel_url: `${baseUrl}/cancel`,
@@ -193,25 +193,25 @@ export function setupDiscordBot() {
                     }
                 }, { 
                     headers: { 
-                        "Authorization": `Bearer ${process.env.MONEYMOTION_API_KEY}`, 
+                        "X-API-Key": process.env.MONEYMOTION_API_KEY, // Correct Header
                         "Content-Type": "application/json" 
                     } 
                 });
 
-                invoiceUrl = response.data.url || response.data.checkout_url;
-                if (!invoiceUrl) throw new Error("API responded but no checkout_url found.");
+                // Try to find the URL in various common fields since we don't have the response schema
+                invoiceUrl = response.data.url || response.data.checkout_url || response.data.payment_url || response.data.link;
+                
+                if (!invoiceUrl) {
+                    console.error("[MONEYMOTION ERROR] No URL found in response:", response.data);
+                    throw new Error("API responded but no checkout URL found.");
+                }
 
-                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: response.data.id });
+                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: response.data.id || "unknown" });
               }
               await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
             } catch (e: any) { 
                 console.error("[PAYMENT ERROR]", e.response ? e.response.data : e.message);
-                // Fallback: If API fails, send static link
-                if (process.env.MONEYMOTION_LINK) {
-                    await interaction.editReply({ content: `API Error: ${e.message}\n\nPlease use the manual link: ${process.env.MONEYMOTION_LINK}` });
-                } else {
-                    await interaction.editReply({ content: `Error: ${e.response?.data?.message || e.message}` }); 
-                }
+                await interaction.editReply({ content: `Error: ${e.response?.data?.message || e.message}` }); 
             }
           }
         } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("select_product_")) {
