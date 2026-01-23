@@ -211,7 +211,8 @@ export function setupDiscordBot() {
                 }, { 
                     headers: { 
                         "X-API-Key": process.env.MONEYMOTION_API_KEY, 
-                        "Content-Type": "application/json" 
+                        "Content-Type": "application/json",
+                        "X-Currency": currency
                     } 
                 });
 
