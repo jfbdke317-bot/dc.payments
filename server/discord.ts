@@ -3,6 +3,10 @@ import axios from "axios";
 import { storage } from "./storage";
 import "dotenv/config";
 
+// --- CONFIGURATION ---
+// Since the API is unstable, we point users directly to your store
+const STORE_URL = "https://coconuds.store"; 
+
 const MINIMUM_AMOUNTS: Record<string, number> = {
   "fivem_ready": 3, "discord_ready_fa": 4, "discord_token_ready": 5, "steam_ready": 4, "vpn_3m": 1, "vpn_6m": 1, "vpn_1y": 1
 };
@@ -24,6 +28,7 @@ const LOCALES: Record<string, any> = {
     quantity_label: (min: number) => `Quantity (Min: ${min})`,
     invalid_quantity: (min: number) => `Invalid quantity! The minimum is ${min}.`,
     invoice_created: (url: string) => `Invoice created! Please pay here: ${url}`,
+    manual_pay: (url: string) => `**Click here to pay:** ${url}\n\n⚠️ **Important:** Please ensure you purchase the correct item and quantity on the store.`,
     error_invoice: "Error creating invoice. Please try again later.",
     payment_confirmed: (user: string, desc: string) => `Payment confirmed! User <@${user}> paid for ${desc}.`,
     products: [
@@ -48,6 +53,7 @@ const LOCALES: Record<string, any> = {
     quantity_label: (min: number) => `Menge (Min: ${min})`,
     invalid_quantity: (min: number) => `Ungültige Menge! Das Minimum ist ${min}.`,
     invoice_created: (url: string) => `Rechnung erstellt! Bitte hier bezahlen: ${url}`,
+    manual_pay: (url: string) => `**Hier klicken zum Bezahlen:** ${url}\n\n⚠️ **Wichtig:** Bitte stelle sicher, dass du das richtige Produkt und die richtige Menge im Shop kaufst.`,
     error_invoice: "Fehler beim Erstellen der Rechnung. Bitte versuche es später erneut.",
     payment_confirmed: (user: string, desc: string) => `Zahlung bestätigt! Nutzer <@${user}> hat für ${desc} bezahlt.`,
     products: [
@@ -72,6 +78,7 @@ const LOCALES: Record<string, any> = {
     quantity_label: (min: number) => `Quantité (Min: ${min})`,
     invalid_quantity: (min: number) => `Quantité invalide ! Le minimum est ${min}.`,
     invoice_created: (url: string) => `Facture créée ! Veuillez payer ici : ${url}`,
+    manual_pay: (url: string) => `**Cliquez ici pour payer :** ${url}\n\n⚠️ **Important :** Assurez-vous d'acheter le bon article et la bonne quantité sur le magasin.`,
     error_invoice: "Erreur lors de la création de la facture. Veuillez réessayer plus tard.",
     payment_confirmed: (user: string, desc: string) => `Paiement confirmé ! L'utilisateur <@${user}> a payé pour ${desc}.`,
     products: [
@@ -110,15 +117,10 @@ export function setupDiscordBot() {
         GatewayIntentBits.GuildPresences  
       ],
       partials: [Partials.Channel, Partials.GuildMember, Partials.User],
-      // Add failIfNotExists: false to prevent crashing on missing users
       failIfNotExists: false,
-      // Increase timeout for slow connections
-      rest: {
-        timeout: 60000 // 60 seconds
-      }
+      rest: { timeout: 60000 }
     });
 
-    // Debug Logging
     client.on("debug", (info) => console.log(`[DISCORD DEBUG] ${info}`));
     client.on("warn", (info) => console.warn(`[DISCORD WARN] ${info}`));
     client.on("error", (error) => console.error(`[DISCORD ERROR] ${error.message}`));
@@ -179,39 +181,32 @@ export function setupDiscordBot() {
                 paymentId = (invoice.payment_id || invoice.id).toString();
                 invoiceUrl = invoice.invoice_url;
                 await storage.createInvoice({ paymentId, paymentStatus: invoice.payment_status || "waiting", payAddress: invoice.pay_address || null, payAmount: invoice.pay_amount ? invoice.pay_amount.toString() : amount.toFixed(2), payCurrency: invoice.pay_currency || "BTC", orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "crypto" });
+                await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
               } else {
                 paymentId = `MM-${Date.now()}-${interaction.user.id}`;
-                // --- RAILWAY & CUSTOM DOMAIN SUPPORT ---
-                // Priority: APP_URL (Railway Variable) -> RAILWAY_PUBLIC_DOMAIN -> Fallback
-                const baseUrl = process.env.APP_URL || `https://${process.env.RAILWAY_PUBLIC_DOMAIN || "your-app-name.up.railway.app"}`;
                 
-                // --- FIXED MONEYMOTION IMPLEMENTATION ---
-                console.log(`[MONEYMOTION] Creating Checkout Session at https://api.moneymotion.io/createCheckoutSession`);
+                // --- STATIC STORE LINK (NO API) ---
+                // Since the API is returning 404, we send the user to the store main page.
+                // You can customize STORE_URL at the top of the file.
                 
-                const response = await axios.post("https://api.moneymotion.io/createCheckoutSession", { 
-                    product_name: `Order: ${product} x${quantity}`,
-                    amount: Number(amount.toFixed(2)),
-                    currency: currency,
-                    success_url: `${baseUrl}/success?payment_id=${paymentId}`,
-                    cancel_url: `${baseUrl}/cancel`,
-                    metadata: {
-                        user_id: interaction.user.id,
-                        order_id: paymentId
-                    }
-                }, { 
-                    headers: { 
-                        "X-API-Key": process.env.MONEYMOTION_API_KEY, 
-                        "Content-Type": "application/json" 
-                    } 
+                await storage.createInvoice({ 
+                    paymentId, 
+                    paymentStatus: "manual_pending", 
+                    payAddress: null, 
+                    payAmount: amount.toFixed(2), 
+                    payCurrency: currency, 
+                    orderDescription: `Order: ${product} x${quantity}`, 
+                    userId: interaction.user.id, 
+                    productId: product, 
+                    paymentMethod: "moneymotion", 
+                    moneymotionId: "manual" 
                 });
 
-                invoiceUrl = response.data.url || response.data.checkout_url || response.data.payment_url || response.data.link;
-                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: response.data.id });
+                await interaction.editReply({ content: locale.manual_pay(STORE_URL) });
               }
-              await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
             } catch (e: any) { 
-                console.error("[PAYMENT ERROR]", e.response ? e.response.data : e.message);
-                await interaction.editReply({ content: `Error: ${e.response?.data?.message || e.message}` }); 
+                console.error("[PAYMENT ERROR]", e.message);
+                await interaction.editReply({ content: `Error: ${e.message}` }); 
             }
           }
         } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("select_product_")) {
@@ -239,12 +234,6 @@ export function setupDiscordBot() {
       .catch(err => {
         console.error("FATAL: Discord Login Failed!");
         console.error(err);
-        if (err.code === 'TokenInvalid') {
-           console.error("CHECK YOUR TOKEN: The token provided was rejected by Discord.");
-        }
-        if (err.code === 'DisallowedIntents') {
-           console.error("CHECK INTENTS: You must enable 'Privileged Gateway Intents' (Presence, Server Members, Message Content) in the Discord Developer Portal.");
-        }
       });
 
   } catch (err) {
@@ -279,15 +268,12 @@ export async function handlePaymentConfirmed(paymentId: string) {
   const invoice = await storage.getInvoiceByPaymentId(paymentId);
   if (!invoice) return;
   
-  // Use the specific Admin Channel ID provided by user
   const adminChannelId = process.env.ADMIN_CHANNEL_ID_2 || "1400259496668041296";
   
   try {
     const channel = await client.channels.fetch(adminChannelId);
     if (channel && "send" in channel) {
       const statusText = ["confirmed", "finished", "paid", "completed"].includes(invoice.paymentStatus) ? "Payment confirmed!" : `Update: ${invoice.paymentStatus}`;
-      
-      // Enhanced Embed for Admin Notification
       const embed = new EmbedBuilder()
         .setTitle(`💰 ${statusText}`)
         .setColor(statusText.includes("confirmed") ? 0x00FF00 : 0xFFA500)
