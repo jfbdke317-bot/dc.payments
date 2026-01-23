@@ -49,13 +49,13 @@ const LOCALES: Record<string, any> = {
     error_invoice: "Error creating invoice. Please try again later.",
     payment_confirmed: (user: string, desc: string) => `Payment confirmed! User <@${user}> paid for ${desc}.`,
     products: [
-      { label: "FiveM Ready ($0.26, min 3)", value: "fivem_ready", description: "FiveM accounts" },
-      { label: "Discord Ready (FA) ($0.21, min 4)", value: "discord_ready_fa", description: "Full Access Discord accounts" },
-      { label: "Discord Token Ready ($0.05, min 5)", value: "discord_token_ready", description: "Token ready accounts" },
-      { label: "Steam Ready ($0.21, min 4)", value: "steam_ready", description: "Steam accounts" },
-      { label: "VPN Cyberghost 3 Months ($5.25)", value: "vpn_3m", description: "3 Months VPN" },
-      { label: "VPN Cyberghost 6 Months ($10.50)", value: "vpn_6m", description: "6 Months VPN" },
-      { label: "VPN Cyberghost 1 Year ($21.00)", value: "vpn_1y", description: "1 Year VPN" },
+      { label: "FiveM Ready (€0.25, min 3)", value: "fivem_ready", description: "FiveM accounts" },
+      { label: "Discord Ready (FA) (€0.20, min 4)", value: "discord_ready_fa", description: "Full Access Discord accounts" },
+      { label: "Discord Token Ready (€0.05, min 5)", value: "discord_token_ready", description: "Token ready accounts" },
+      { label: "Steam Ready (€0.20, min 4)", value: "steam_ready", description: "Steam accounts" },
+      { label: "VPN Cyberghost 3 Months (€5)", value: "vpn_3m", description: "3 Months VPN" },
+      { label: "VPN Cyberghost 6 Months (€10)", value: "vpn_6m", description: "6 Months VPN" },
+      { label: "VPN Cyberghost 1 Year (€20)", value: "vpn_1y", description: "1 Year VPN" },
     ]
   },
   de: {
@@ -186,14 +186,10 @@ export function setupDiscordBot() {
             await interaction.deferReply({ ephemeral: true });
             try {
               let pricePerUnit = PRODUCT_PRICES[product] || 10;
-              const currency = lang === "en" ? "USD" : "EUR";
               
-              // Define exchange rate: 1 EUR = 1.05 USD (adjust this value as needed)
-              const EXCHANGE_RATE_EUR_TO_USD = 1.05; 
-
-              if (currency === "USD") {
-                  pricePerUnit = Number((pricePerUnit * EXCHANGE_RATE_EUR_TO_USD).toFixed(2));
-              }
+              // Force Currency to EUR for everyone (so price is always the same)
+              // Even if user selected "en" (English), we will charge them in EUR.
+              const currency = "EUR"; 
               
               const amount = quantity * pricePerUnit;
               let invoiceUrl = "", paymentId = "";
