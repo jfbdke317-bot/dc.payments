@@ -188,8 +188,8 @@ export function setupDiscordBot() {
               let pricePerUnit = PRODUCT_PRICES[product] || 10;
               const currency = lang === "en" ? "USD" : "EUR";
               
-              // Define exchange rate: 1 EUR = 1.17 USD (adjust this value as needed)
-              const EXCHANGE_RATE_EUR_TO_USD = 1.17; 
+              // Define exchange rate: 1 EUR = 1.05 USD (adjust this value as needed)
+              const EXCHANGE_RATE_EUR_TO_USD = 1.05; 
 
               if (currency === "USD") {
                   pricePerUnit = Number((pricePerUnit * EXCHANGE_RATE_EUR_TO_USD).toFixed(2));
