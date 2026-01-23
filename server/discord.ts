@@ -98,27 +98,27 @@ export function setupDiscordBot() {
   // Clean the token
   token = token.trim().replace(/^["']|["']$/g, '');
 
-  console.log("BOT_INIT: Attempting to create Discord Client...");
+  console.log("BOT_INIT: Attempting to create Discord Client (PRODUCTION MODE)...");
 
   try {
     client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent, // RE-ENABLED
-        GatewayIntentBits.GuildMembers,   // RE-ENABLED
-        GatewayIntentBits.GuildPresences  // RE-ENABLED
+        GatewayIntentBits.MessageContent, 
+        GatewayIntentBits.GuildMembers,   
+        GatewayIntentBits.GuildPresences  
       ],
       partials: [Partials.Channel, Partials.GuildMember, Partials.User],
       // Add failIfNotExists: false to prevent crashing on missing users
       failIfNotExists: false,
-      // Increase timeout
+      // Increase timeout for slow connections
       rest: {
-        timeout: 30000 // 30 seconds
+        timeout: 60000 // 60 seconds
       }
     });
 
-    // Detailed Debug Logging
+    // Debug Logging
     client.on("debug", (info) => console.log(`[DISCORD DEBUG] ${info}`));
     client.on("warn", (info) => console.warn(`[DISCORD WARN] ${info}`));
     client.on("error", (error) => console.error(`[DISCORD ERROR] ${error.message}`));
