@@ -177,12 +177,15 @@ export function setupDiscordBot() {
                 await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
               } else {
                 paymentId = `MM-${Date.now()}-${interaction.user.id}`;
-                const baseUrl = process.env.APP_URL || `https://${process.env.RAILWAY_PUBLIC_DOMAIN || "your-app-name.up.railway.app"}`;
+                const baseUrl = process.env.APP_URL || "https://dcpayments-production.up.railway.app";
                 
                 // --- TRPC MONEYMOTION IMPLEMENTATION ---
                 console.log(`[MONEYMOTION] Creating Session (TRPC Style)...`);
                 
-                // Convert amount to CENTS (e.g. 5.00 -> 500)
+                if (!process.env.MONEYMOTION_API_KEY) {
+                    throw new Error("Missing MONEYMOTION_API_KEY in environment variables");
+                }
+
                 const priceInCents = Math.round(amount * 100);
 
                 const response = await axios.post("https://api.moneymotion.io/checkoutSessions.createCheckoutSession", { 
@@ -194,39 +197,30 @@ export function setupDiscordBot() {
                             failure: `${baseUrl}/cancel`
                         },
                         userInfo: {
-                            email: "customer@discord.user" // Placeholder needed by API
+                            email: `${interaction.user.username}@discord.user` 
                         },
                         lineItems: [
                             {
                                 name: product,
                                 description: `${quantity}x ${product}`,
-                                pricePerItemInCents: Math.round((priceInCents / quantity)), // Price per unit
+                                pricePerItemInCents: Math.round(priceInCents / quantity),
                                 quantity: quantity
                             }
                         ]
                     }
                 }, { 
                     headers: { 
-                        "x-api-key": process.env.MONEYMOTION_API_KEY, 
+                        "X-API-Key": process.env.MONEYMOTION_API_KEY, 
                         "Content-Type": "application/json" 
                     } 
                 });
 
-                // The response structure is likely nested based on TRPC format
-                // Look for result.data.json.checkoutSessionId or similar, then construct URL?
-                // OR maybe it returns a URL directly? 
-                // Based on your cURL example, it returns { result: { data: { json: { checkoutSessionId: "..." } } } }
-                
                 const sessionId = response.data?.result?.data?.json?.checkoutSessionId;
                 
                 if (sessionId) {
-                    // If we get an ID, construct the URL (assuming standard checkout URL structure)
-                    // We might need to guess the checkout URL structure if not provided.
-                    // Usually: https://moneymotion.io/checkout/{id} OR https://pay.moneymotion.io/{id}
-                    // Let's try to find if a URL is returned elsewhere, otherwise construct it.
+                    // Try to construct URL from session ID
                     invoiceUrl = `https://moneymotion.io/checkout/${sessionId}`; 
                 } else {
-                    // Fallback to static link if parsing fails
                     console.error("[MONEYMOTION] Could not parse Session ID:", JSON.stringify(response.data));
                     throw new Error("Invalid API Response");
                 }
@@ -236,7 +230,6 @@ export function setupDiscordBot() {
               }
             } catch (e: any) { 
                 console.error("[PAYMENT ERROR]", e.response ? JSON.stringify(e.response.data) : e.message);
-                // Fallback to static link on error
                 const storeLink = process.env.MONEYMOTION_LINK || "https://coconuds.store";
                 await interaction.editReply({ content: `Payment Link: ${storeLink}` }); 
             }
@@ -289,7 +282,7 @@ async function registerCommands() {
 async function createNOWPaymentsInvoice(amount: number, currency: string, product: string, userId: string) {
   const response = await axios.post("https://api.nowpayments.io/v1/invoice", {
     price_amount: amount, price_currency: currency, order_id: `ORDER-${Date.now()}-${userId}`, order_description: product,
-    ipn_callback_url: `${process.env.APP_URL || `https://dc-payments.onrender.com`}/nowpayments`,
+    ipn_callback_url: `${process.env.APP_URL || "https://dcpayments-production.up.railway.app"}/nowpayments`,
     success_url: "https://discord.com", cancel_url: "https://discord.com"
   }, { headers: { "x-api-key": process.env.NOWPAYMENTS_API_KEY!, "Content-Type": "application/json" } });
   return response.data;
