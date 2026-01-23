@@ -253,12 +253,31 @@ export async function handlePaymentConfirmed(paymentId: string) {
   if (!client) return;
   const invoice = await storage.getInvoiceByPaymentId(paymentId);
   if (!invoice) return;
+  
+  // Use the specific Admin Channel ID provided by user
   const adminChannelId = process.env.ADMIN_CHANNEL_ID_2 || "1400259496668041296";
+  
   try {
     const channel = await client.channels.fetch(adminChannelId);
     if (channel && "send" in channel) {
       const statusText = ["confirmed", "finished", "paid", "completed"].includes(invoice.paymentStatus) ? "Payment confirmed!" : `Update: ${invoice.paymentStatus}`;
-      await (channel as any).send(`${statusText} User <@${invoice.userId}> paid for ${invoice.orderDescription}.`);
+      
+      // Enhanced Embed for Admin Notification
+      const embed = new EmbedBuilder()
+        .setTitle(`💰 ${statusText}`)
+        .setColor(statusText.includes("confirmed") ? 0x00FF00 : 0xFFA500)
+        .addFields(
+          { name: "User", value: `<@${invoice.userId}>`, inline: true },
+          { name: "Product", value: invoice.orderDescription || "Unknown Product", inline: true },
+          { name: "Amount", value: `${invoice.payAmount} ${invoice.payCurrency}`, inline: true },
+          { name: "Payment ID", value: `\`${paymentId}\``, inline: false },
+          { name: "Status", value: invoice.paymentStatus, inline: true }
+        )
+        .setTimestamp();
+
+      await (channel as any).send({ embeds: [embed] });
     }
-  } catch (error) { console.error(error); }
+  } catch (error) { 
+    console.error(`[DISCORD ERROR] Failed to send admin notification to channel ${adminChannelId}:`, error); 
+  }
 }
