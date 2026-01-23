@@ -14,19 +14,23 @@ const PRODUCT_PRICES: Record<string, number> = {
 // Map product codes to clean, human-readable names
 const PRODUCT_NAMES: Record<string, string> = {
   "fivem_ready": "FiveM Ready Account",
-  "discord_ready_fa": "Discord Full Access",
+  "discord_ready_fa": "Discord Ready (Full Access)",
   "discord_token_ready": "Discord Token",
-  "steam_ready": "Steam Account",
-  "vpn_3m": "Cyberghost VPN (3 Months)",
-  "vpn_6m": "Cyberghost VPN (6 Months)",
-  "vpn_1y": "Cyberghost VPN (1 Year)"
+  "steam_ready": "Steam Ready Account",
+  "vpn_3m": "VPN Cyberghost (3 Months)",
+  "vpn_6m": "VPN Cyberghost (6 Months)",
+  "vpn_1y": "VPN Cyberghost (1 Year)"
 };
 
 // Optional: Add image URLs for your products here
 const PRODUCT_IMAGES: Record<string, string> = {
-  "fivem_ready": "https://imgur.com/example1.png", 
-  "vpn_3m": "https://imgur.com/example2.png"
-  // Add more as needed...
+  "fivem_ready": "https://api-internal-2.sellauth.com/storage/images/730903.webp",
+  "steam_ready": "https://api-internal-2.sellauth.com/storage/images/730904.webp",
+  "discord_ready_fa": "https://imagedelivery.net/HL_Fwm__tlvUGLZF2p74xw/18662743-93e9-477c-7176-1d1dac067400/public",
+  "discord_token_ready": "https://imagedelivery.net/HL_Fwm__tlvUGLZF2p74xw/18662743-93e9-477c-7176-1d1dac067400/public",
+  "vpn_3m": "https://api-internal-2.sellauth.com/storage/images/730948.webp",
+  "vpn_6m": "https://api-internal-2.sellauth.com/storage/images/730948.webp",
+  "vpn_1y": "https://api-internal-2.sellauth.com/storage/images/730948.webp"
 };
 
 const LOCALES: Record<string, any> = {
@@ -183,7 +187,14 @@ export function setupDiscordBot() {
             try {
               let pricePerUnit = PRODUCT_PRICES[product] || 10;
               const currency = lang === "en" ? "USD" : "EUR";
-              if (currency === "USD") pricePerUnit *= 1.09;
+              
+              // Define exchange rate: 1 EUR = 1.17 USD (adjust this value as needed)
+              const EXCHANGE_RATE_EUR_TO_USD = 1.17; 
+
+              if (currency === "USD") {
+                  pricePerUnit = Number((pricePerUnit * EXCHANGE_RATE_EUR_TO_USD).toFixed(2));
+              }
+              
               const amount = quantity * pricePerUnit;
               let invoiceUrl = "", paymentId = "";
   
