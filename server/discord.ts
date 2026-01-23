@@ -229,9 +229,10 @@ export function setupDiscordBot() {
                 await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
               }
             } catch (e: any) { 
-                console.error("[PAYMENT ERROR]", e.response ? JSON.stringify(e.response.data) : e.message);
-                const storeLink = process.env.MONEYMOTION_LINK || "https://coconuds.store";
-                await interaction.editReply({ content: `Payment Link: ${storeLink}` }); 
+                const errorMessage = e.response?.data ? JSON.stringify(e.response.data) : e.message;
+                console.error("[PAYMENT ERROR]", errorMessage);
+                // DEBUG: Show specific error to user
+                await interaction.editReply({ content: `⚠️ **System Error**: ${errorMessage}\n\nBackup Link: https://coconuds.store` }); 
             }
           }
         } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("select_product_")) {
