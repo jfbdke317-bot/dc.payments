@@ -110,15 +110,10 @@ export function setupDiscordBot() {
         GatewayIntentBits.GuildPresences  
       ],
       partials: [Partials.Channel, Partials.GuildMember, Partials.User],
-      // Add failIfNotExists: false to prevent crashing on missing users
       failIfNotExists: false,
-      // Increase timeout for slow connections
-      rest: {
-        timeout: 60000 // 60 seconds
-      }
+      rest: { timeout: 60000 }
     });
 
-    // Debug Logging
     client.on("debug", (info) => console.log(`[DISCORD DEBUG] ${info}`));
     client.on("warn", (info) => console.warn(`[DISCORD WARN] ${info}`));
     client.on("error", (error) => console.error(`[DISCORD ERROR] ${error.message}`));
@@ -182,12 +177,20 @@ export function setupDiscordBot() {
               } else {
                 paymentId = `MM-${Date.now()}-${interaction.user.id}`;
                 const baseUrl = process.env.APP_URL || `https://dc-payments.onrender.com`;
+                
+                console.log(`[MONEYMOTION DEBUG] Sending request to https://api.moneymotion.io/v1/orders`);
+                console.log(`[MONEYMOTION DEBUG] Payload:`, { amount: amount.toFixed(2), currency, order_id: paymentId });
+                console.log(`[MONEYMOTION DEBUG] Key Present: ${!!process.env.MONEYMOTION_API_KEY}`);
+
                 const response = await axios.post("https://api.moneymotion.io/v1/orders", { amount: amount.toFixed(2), currency, order_id: paymentId, description: `Order: ${product} x${quantity}`, callback_url: `${baseUrl}/moneymotion-webhook` }, { headers: { "Authorization": `Bearer ${process.env.MONEYMOTION_API_KEY}`, "Content-Type": "application/json" } });
                 invoiceUrl = response.data.payment_url;
                 await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: response.data.id });
               }
               await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
-            } catch (e) { await interaction.editReply({ content: locale.error_invoice }); }
+            } catch (e: any) { 
+                console.error("[PAYMENT ERROR]", e.response ? e.response.data : e.message);
+                await interaction.editReply({ content: `Error: ${e.response?.data?.message || e.message || "Unknown error"}` }); 
+            }
           }
         } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("select_product_")) {
           const lang = interaction.customId.replace("select_product_", ""), locale = LOCALES[lang], selected = interaction.values[0];
@@ -214,12 +217,6 @@ export function setupDiscordBot() {
       .catch(err => {
         console.error("FATAL: Discord Login Failed!");
         console.error(err);
-        if (err.code === 'TokenInvalid') {
-           console.error("CHECK YOUR TOKEN: The token provided was rejected by Discord.");
-        }
-        if (err.code === 'DisallowedIntents') {
-           console.error("CHECK INTENTS: You must enable 'Privileged Gateway Intents' (Presence, Server Members, Message Content) in the Discord Developer Portal.");
-        }
       });
 
   } catch (err) {
@@ -254,15 +251,12 @@ export async function handlePaymentConfirmed(paymentId: string) {
   const invoice = await storage.getInvoiceByPaymentId(paymentId);
   if (!invoice) return;
   
-  // Use the specific Admin Channel ID provided by user
   const adminChannelId = process.env.ADMIN_CHANNEL_ID_2 || "1400259496668041296";
   
   try {
     const channel = await client.channels.fetch(adminChannelId);
     if (channel && "send" in channel) {
       const statusText = ["confirmed", "finished", "paid", "completed"].includes(invoice.paymentStatus) ? "Payment confirmed!" : `Update: ${invoice.paymentStatus}`;
-      
-      // Enhanced Embed for Admin Notification
       const embed = new EmbedBuilder()
         .setTitle(`💰 ${statusText}`)
         .setColor(statusText.includes("confirmed") ? 0x00FF00 : 0xFFA500)
