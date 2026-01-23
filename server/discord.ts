@@ -3,10 +3,6 @@ import axios from "axios";
 import { storage } from "./storage";
 import "dotenv/config";
 
-// --- CONFIGURATION ---
-// Since the API is unstable, we point users directly to your store
-const STORE_URL = "https://coconuds.store"; 
-
 const MINIMUM_AMOUNTS: Record<string, number> = {
   "fivem_ready": 3, "discord_ready_fa": 4, "discord_token_ready": 5, "steam_ready": 4, "vpn_3m": 1, "vpn_6m": 1, "vpn_1y": 1
 };
@@ -28,7 +24,6 @@ const LOCALES: Record<string, any> = {
     quantity_label: (min: number) => `Quantity (Min: ${min})`,
     invalid_quantity: (min: number) => `Invalid quantity! The minimum is ${min}.`,
     invoice_created: (url: string) => `Invoice created! Please pay here: ${url}`,
-    manual_pay: (url: string) => `**Click here to pay:** ${url}\n\n⚠️ **Important:** Please ensure you purchase the correct item and quantity on the store.`,
     error_invoice: "Error creating invoice. Please try again later.",
     payment_confirmed: (user: string, desc: string) => `Payment confirmed! User <@${user}> paid for ${desc}.`,
     products: [
@@ -53,7 +48,6 @@ const LOCALES: Record<string, any> = {
     quantity_label: (min: number) => `Menge (Min: ${min})`,
     invalid_quantity: (min: number) => `Ungültige Menge! Das Minimum ist ${min}.`,
     invoice_created: (url: string) => `Rechnung erstellt! Bitte hier bezahlen: ${url}`,
-    manual_pay: (url: string) => `**Hier klicken zum Bezahlen:** ${url}\n\n⚠️ **Wichtig:** Bitte stelle sicher, dass du das richtige Produkt und die richtige Menge im Shop kaufst.`,
     error_invoice: "Fehler beim Erstellen der Rechnung. Bitte versuche es später erneut.",
     payment_confirmed: (user: string, desc: string) => `Zahlung bestätigt! Nutzer <@${user}> hat für ${desc} bezahlt.`,
     products: [
@@ -78,7 +72,6 @@ const LOCALES: Record<string, any> = {
     quantity_label: (min: number) => `Quantité (Min: ${min})`,
     invalid_quantity: (min: number) => `Quantité invalide ! Le minimum est ${min}.`,
     invoice_created: (url: string) => `Facture créée ! Veuillez payer ici : ${url}`,
-    manual_pay: (url: string) => `**Cliquez ici pour payer :** ${url}\n\n⚠️ **Important :** Assurez-vous d'acheter le bon article et la bonne quantité sur le magasin.`,
     error_invoice: "Erreur lors de la création de la facture. Veuillez réessayer plus tard.",
     payment_confirmed: (user: string, desc: string) => `Paiement confirmé ! L'utilisateur <@${user}> a payé pour ${desc}.`,
     products: [
@@ -184,29 +177,68 @@ export function setupDiscordBot() {
                 await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
               } else {
                 paymentId = `MM-${Date.now()}-${interaction.user.id}`;
+                const baseUrl = process.env.APP_URL || `https://${process.env.RAILWAY_PUBLIC_DOMAIN || "your-app-name.up.railway.app"}`;
                 
-                // --- STATIC STORE LINK (NO API) ---
-                // Since the API is returning 404, we send the user to the store main page.
-                // You can customize STORE_URL at the top of the file.
+                // --- TRPC MONEYMOTION IMPLEMENTATION ---
+                console.log(`[MONEYMOTION] Creating Session (TRPC Style)...`);
                 
-                await storage.createInvoice({ 
-                    paymentId, 
-                    paymentStatus: "manual_pending", 
-                    payAddress: null, 
-                    payAmount: amount.toFixed(2), 
-                    payCurrency: currency, 
-                    orderDescription: `Order: ${product} x${quantity}`, 
-                    userId: interaction.user.id, 
-                    productId: product, 
-                    paymentMethod: "moneymotion", 
-                    moneymotionId: "manual" 
+                // Convert amount to CENTS (e.g. 5.00 -> 500)
+                const priceInCents = Math.round(amount * 100);
+
+                const response = await axios.post("https://api.moneymotion.io/checkoutSessions.createCheckoutSession", { 
+                    json: {
+                        description: `Order: ${product} x${quantity}`,
+                        urls: {
+                            success: `${baseUrl}/success?payment_id=${paymentId}`,
+                            cancel: `${baseUrl}/cancel`,
+                            failure: `${baseUrl}/cancel`
+                        },
+                        userInfo: {
+                            email: "customer@discord.user" // Placeholder needed by API
+                        },
+                        lineItems: [
+                            {
+                                name: product,
+                                description: `${quantity}x ${product}`,
+                                pricePerItemInCents: Math.round((priceInCents / quantity)), // Price per unit
+                                quantity: quantity
+                            }
+                        ]
+                    }
+                }, { 
+                    headers: { 
+                        "x-api-key": process.env.MONEYMOTION_API_KEY, 
+                        "Content-Type": "application/json" 
+                    } 
                 });
 
-                await interaction.editReply({ content: locale.manual_pay(STORE_URL) });
+                // The response structure is likely nested based on TRPC format
+                // Look for result.data.json.checkoutSessionId or similar, then construct URL?
+                // OR maybe it returns a URL directly? 
+                // Based on your cURL example, it returns { result: { data: { json: { checkoutSessionId: "..." } } } }
+                
+                const sessionId = response.data?.result?.data?.json?.checkoutSessionId;
+                
+                if (sessionId) {
+                    // If we get an ID, construct the URL (assuming standard checkout URL structure)
+                    // We might need to guess the checkout URL structure if not provided.
+                    // Usually: https://moneymotion.io/checkout/{id} OR https://pay.moneymotion.io/{id}
+                    // Let's try to find if a URL is returned elsewhere, otherwise construct it.
+                    invoiceUrl = `https://moneymotion.io/checkout/${sessionId}`; 
+                } else {
+                    // Fallback to static link if parsing fails
+                    console.error("[MONEYMOTION] Could not parse Session ID:", JSON.stringify(response.data));
+                    throw new Error("Invalid API Response");
+                }
+
+                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: sessionId });
+                await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
               }
             } catch (e: any) { 
-                console.error("[PAYMENT ERROR]", e.message);
-                await interaction.editReply({ content: `Error: ${e.message}` }); 
+                console.error("[PAYMENT ERROR]", e.response ? JSON.stringify(e.response.data) : e.message);
+                // Fallback to static link on error
+                const storeLink = process.env.MONEYMOTION_LINK || "https://coconuds.store";
+                await interaction.editReply({ content: `Payment Link: ${storeLink}` }); 
             }
           }
         } else if (interaction.isStringSelectMenu() && interaction.customId.startsWith("select_product_")) {
