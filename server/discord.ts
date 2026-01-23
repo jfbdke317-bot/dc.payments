@@ -11,6 +11,24 @@ const PRODUCT_PRICES: Record<string, number> = {
   "fivem_ready": 0.25, "discord_ready_fa": 0.20, "discord_token_ready": 0.05, "steam_ready": 0.20, "vpn_3m": 5, "vpn_6m": 10, "vpn_1y": 20
 };
 
+// Map product codes to clean, human-readable names
+const PRODUCT_NAMES: Record<string, string> = {
+  "fivem_ready": "FiveM Ready Account",
+  "discord_ready_fa": "Discord Full Access",
+  "discord_token_ready": "Discord Token",
+  "steam_ready": "Steam Account",
+  "vpn_3m": "Cyberghost VPN (3 Months)",
+  "vpn_6m": "Cyberghost VPN (6 Months)",
+  "vpn_1y": "Cyberghost VPN (1 Year)"
+};
+
+// Optional: Add image URLs for your products here
+const PRODUCT_IMAGES: Record<string, string> = {
+  "fivem_ready": "https://imgur.com/example1.png", 
+  "vpn_3m": "https://imgur.com/example2.png"
+  // Add more as needed...
+};
+
 const LOCALES: Record<string, any> = {
   en: {
     welcome: "Welcome to your ticket! Please select your language:",
@@ -179,6 +197,10 @@ export function setupDiscordBot() {
                 paymentId = `MM-${Date.now()}-${interaction.user.id}`;
                 const baseUrl = process.env.APP_URL || "https://dcpayments-production.up.railway.app";
                 
+                // Use the nice clean name if available, otherwise fallback to the code
+                const cleanProductName = PRODUCT_NAMES[product] || product;
+                const imageUrl = PRODUCT_IMAGES[product] || undefined;
+
                 // --- TRPC MONEYMOTION IMPLEMENTATION ---
                 console.log(`[MONEYMOTION] Creating Session (TRPC Style)...`);
                 
@@ -190,7 +212,7 @@ export function setupDiscordBot() {
 
                 const response = await axios.post("https://api.moneymotion.io/checkoutSessions.createCheckoutSession", { 
                     json: {
-                        description: `Order: ${product} x${quantity}`,
+                        description: `Order: ${cleanProductName} x${quantity}`,
                         urls: {
                             success: `${baseUrl}/success?payment_id=${paymentId}`,
                             cancel: `${baseUrl}/cancel`,
@@ -201,10 +223,11 @@ export function setupDiscordBot() {
                         },
                         lineItems: [
                             {
-                                name: product,
-                                description: `${quantity}x ${product}`,
+                                name: cleanProductName,
+                                description: `${quantity}x ${cleanProductName}`,
                                 pricePerItemInCents: Math.round(priceInCents / quantity),
-                                quantity: quantity
+                                quantity: quantity,
+                                imageUrl: imageUrl // Optional: Add this if Moneymotion supports it in this object
                             }
                         ]
                     }
@@ -226,7 +249,7 @@ export function setupDiscordBot() {
                     throw new Error("Invalid API Response");
                 }
 
-                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${product} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: sessionId });
+                await storage.createInvoice({ paymentId, paymentStatus: "pending", payAddress: null, payAmount: amount.toFixed(2), payCurrency: currency, orderDescription: `Order: ${cleanProductName} x${quantity}`, userId: interaction.user.id, productId: product, paymentMethod: "moneymotion", moneymotionId: sessionId });
                 await interaction.editReply({ content: locale.invoice_created(invoiceUrl) });
               }
             } catch (e: any) { 
