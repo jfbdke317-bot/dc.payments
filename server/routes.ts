@@ -100,21 +100,45 @@ export async function registerRoutes(
 
         try {
           const baseUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
-          const response = await axios.post("https://api.moneymotion.io/v1/orders", {
-            amount: input.payAmount,
-            currency: input.payCurrency || "USD",
-            order_id: invoice.paymentId,
-            description: input.orderDescription,
-            callback_url: `${baseUrl}/moneymotion-webhook`
+          
+          const priceInCents = Math.round(Number(input.payAmount) * 100);
+
+          const response = await axios.post("https://api.moneymotion.io/checkoutSessions.createCheckoutSession", {
+            json: {
+              description: input.orderDescription,
+              urls: {
+                success: `${baseUrl}/success?payment_id=${invoice.paymentId}`,
+                cancel: `${baseUrl}/cancel`,
+                failure: `${baseUrl}/cancel`
+              },
+              userInfo: {
+                email: "customer@web.user"
+              },
+              lineItems: [
+                {
+                  name: input.orderDescription || "Product",
+                  description: input.orderDescription || "Product Description",
+                  pricePerItemInCents: priceInCents,
+                  quantity: 1
+                }
+              ]
+            }
           }, {
             headers: {
-              "Authorization": `Bearer ${process.env.MONEYMOTION_API_KEY}`,
+              "X-API-Key": process.env.MONEYMOTION_API_KEY,
               "Content-Type": "application/json"
             }
           });
 
+          const sessionId = response.data?.result?.data?.json?.checkoutSessionId;
+          const paymentUrl = sessionId ? `https://moneymotion.io/checkout/${sessionId}` : null;
+
+          if (!paymentUrl) {
+             throw new Error("Invalid API Response from Moneymotion");
+          }
+
           await storage.updateInvoiceStatus(invoice.paymentId, "pending");
-          return res.status(201).json({ ...invoice, payment_url: response.data.payment_url });
+          return res.status(201).json({ ...invoice, payment_url: paymentUrl });
         } catch (apiErr: any) {
           console.error("Moneymotion API Error:", apiErr.response?.data || apiErr.message);
           return res.status(500).json({ message: "Failed to create Moneymotion order" });
